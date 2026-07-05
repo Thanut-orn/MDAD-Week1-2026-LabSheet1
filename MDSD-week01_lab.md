@@ -1332,8 +1332,10 @@ class ApiConfig {
 
 ```dart
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+
 import '../config/api_config.dart';
 
 class AiChatPage extends StatefulWidget {
@@ -1345,194 +1347,169 @@ class AiChatPage extends StatefulWidget {
 
 class _AiChatPageState extends State<AiChatPage> {
   final TextEditingController _controller = TextEditingController();
-  // เก็บประวัติการสนทนาในรูปแบบที่ Gemini API ต้องการ
-  final List<Map<String, dynamic>> _history = [];
-  // เก็บข้อความสำหรับแสดงผลบนหน้าจอ
+
   final List<Map<String, String>> _messages = [];
+
   bool _isLoading = false;
 
-  static const String _model = 'gemini-2.0-flash';
-  static const String _baseUrl =
-      'https://generativelanguage.googleapis.com/v1beta/models';
-
-  // ส่งข้อความไปยัง Gemini REST API โดยตรง
   Future<void> _sendMessage() async {
     final userMessage = _controller.text.trim();
-    if (userMessage.isEmpty || _isLoading) return;
 
-    // เพิ่มข้อความผู้ใช้เข้า History และ UI
-    _history.add({
-      'role': 'user',
-      'parts': [
-        {'text': userMessage}
-      ],
-    });
+    if (userMessage.isEmpty) return;
+
     setState(() {
-      _messages.add({'role': 'user', 'text': userMessage});
+      _messages.add({
+        'role': 'user',
+        'text': userMessage,
+      });
       _isLoading = true;
     });
+
     _controller.clear();
 
     try {
-      // เรียก Gemini REST API
       final response = await http.post(
         Uri.parse(
-          '$_baseUrl/$_model:generateContent?key=${ApiConfig.geminiApiKey}',
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${ApiConfig.geminiApiKey}',
         ),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: jsonEncode({
-          'contents': _history, // ส่งประวัติทั้งหมดเพื่อให้ AI จำบทสนทนา
-          'generationConfig': {
-            'temperature': 0.7,
-            'maxOutputTokens': 1024,
-          },
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": userMessage,
+                }
+              ]
+            }
+          ]
         }),
       );
 
+      debugPrint("Status Code : ${response.statusCode}");
+      debugPrint("Response : ${response.body}");
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final replyText = data['candidates'][0]['content']['parts'][0]['text']
-            as String? ??
-            'ไม่ได้รับการตอบกลับ';
 
-        // เพิ่มคำตอบของ AI เข้า History เพื่อบทสนทนาต่อเนื่อง
-        _history.add({
-          'role': 'model',
-          'parts': [
-            {'text': replyText}
-          ],
-        });
-        setState(() {
-          _messages.add({'role': 'assistant', 'text': replyText});
-        });
-      } else {
-        // แสดง Error พร้อม Status Code เพื่อช่วย Debug
-        final error = jsonDecode(response.body);
-        final errorMessage =
-            error['error']['message'] as String? ?? 'Unknown error';
+        final aiText =
+            data["candidates"][0]["content"]["parts"][0]["text"] ??
+                "No response";
+
         setState(() {
           _messages.add({
             'role': 'assistant',
-            'text': 'เกิดข้อผิดพลาด (${response.statusCode}): $errorMessage',
+            'text': aiText,
           });
         });
-        // ลบข้อความผู้ใช้ออกจาก History เพราะไม่มีคำตอบ
-        _history.removeLast();
+      } else {
+        setState(() {
+          _messages.add({
+            'role': 'assistant',
+            'text':
+                'Error ${response.statusCode}\n\n${response.body}',
+          });
+        });
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint(e.toString());
+      debugPrint(st.toString());
+
       setState(() {
         _messages.add({
           'role': 'assistant',
-          'text': 'เกิดข้อผิดพลาด: ${e.toString()}',
+          'text': e.toString(),
         });
       });
-      _history.removeLast();
     } finally {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+      });
     }
+  }
+
+  Widget _buildMessage(Map<String, String> message) {
+    final isUser = message["role"] == "user";
+
+    return Align(
+      alignment:
+          isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.all(12),
+        constraints: const BoxConstraints(maxWidth: 300),
+        decoration: BoxDecoration(
+          color: isUser ? Colors.blue : Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          message["text"] ?? "",
+          style: TextStyle(
+            color: isUser ? Colors.white : Colors.black,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gemini AI Chat'),
+        title: const Text("Gemini AI Chat"),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
-          // รายการข้อความ
           Expanded(
             child: _messages.isEmpty
                 ? const Center(
                     child: Text(
-                      '👋 ทักทาย Gemini AI!\nลองพิมพ์ข้อความด้านล่าง',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey, fontSize: 16),
+                      "👋 Hello Gemini",
+                      style: TextStyle(fontSize: 18),
                     ),
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
-                      final message = _messages[index];
-                      final isUser = message['role'] == 'user';
-
-                      return Align(
-                        alignment: isUser
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
-                          constraints: BoxConstraints(
-                            maxWidth:
-                                MediaQuery.of(context).size.width * 0.75,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isUser ? Colors.blue : Colors.grey[200],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            message['text']!,
-                            style: TextStyle(
-                              color:
-                                  isUser ? Colors.white : Colors.black,
-                            ),
-                          ),
-                        ),
-                      );
+                      return _buildMessage(_messages[index]);
                     },
                   ),
           ),
-
-          // Loading Indicator
           if (_isLoading)
             const Padding(
-              padding: EdgeInsets.all(8.0),
+              padding: EdgeInsets.all(8),
               child: CircularProgressIndicator(),
             ),
-
-          // Input Box
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: InputDecoration(
-                      hintText: 'พิมพ์ข้อความ...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      decoration: InputDecoration(
+                        hintText: "Ask Gemini...",
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(25),
+                        ),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                      onSubmitted: (_) => _sendMessage(),
                     ),
-                    onSubmitted: (_) => _sendMessage(),
-                    textInputAction: TextInputAction.send,
                   ),
-                ),
-                const SizedBox(width: 8),
-                FloatingActionButton.small(
-                  onPressed: _isLoading ? null : _sendMessage,
-                  backgroundColor: Colors.blue,
-                  child: const Icon(Icons.send, color: Colors.white),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  FloatingActionButton.small(
+                    onPressed:
+                        _isLoading ? null : _sendMessage,
+                    child: const Icon(Icons.send),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
